@@ -1,0 +1,177 @@
+name: Security Scans
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 3 * * *'  # Daily at 03:00 UTC
+  workflow_dispatch:
+
+jobs:
+  trivy-fs-scan:
+    name: Trivy Filesystem Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Cache Trivy DB
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            trivy-db-${{ runner.os }}-
+
+      - name: Run Trivy vulnerability scanner in fs mode
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          scanners: 'vuln,config,secret'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+          exit-code: '0'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Generate SBOM
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'cyclonedx'
+          output: 'sbom.json'
+          exit-code: '0'
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom.json
+          retention-days: 30
+
+      - name: Run Trivy vulnerability scanner for enforcement
+        if: github.event_name == 'pull_request'
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          scanners: 'vuln,config,secret'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+
+      - name: Generate security summary
+        if: always()
+        run: |
+          echo "## 🔒 Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Scan Type**: Filesystem" >> $GITHUB_STEP_SUMMARY
+          echo "- **Scanners**: Vulnerabilities, Configuration, Secrets" \
+            >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            echo "- **Enforcement**: Enabled (fail on HIGH/CRITICAL)" \
+              >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Enforcement**: Disabled" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  trivy-docker-scan:
+    name: Trivy Docker Image Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    if: >-
+      contains(github.event.head_commit.modified, 'Dockerfile') ||
+      contains(github.event.head_commit.added, 'Dockerfile') ||
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for Dockerfile
+        id: dockerfile-check
+        run: |
+          if [ -f "Dockerfile" ]; then
+            echo "dockerfile-exists=true" >> $GITHUB_OUTPUT
+            echo "Found Dockerfile, proceeding with image scan"
+          else
+            echo "dockerfile-exists=false" >> $GITHUB_OUTPUT
+            echo "No Dockerfile found, skipping image scan"
+          fi
+
+      - name: Cache Trivy DB
+        if: steps.dockerfile-check.outputs.dockerfile-exists == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            trivy-db-${{ runner.os }}-
+
+      - name: Build Docker image
+        if: steps.dockerfile-check.outputs.dockerfile-exists == 'true'
+        run: docker build -t local-image:latest .
+
+      - name: Run Trivy vulnerability scanner on Docker image
+        if: steps.dockerfile-check.outputs.dockerfile-exists == 'true'
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'local-image:latest'
+          format: 'sarif'
+          output: 'trivy-docker-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+          exit-code: '0'
+
+      - name: Upload Trivy Docker scan results to GitHub Security tab
+        if: steps.dockerfile-check.outputs.dockerfile-exists == 'true'
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-docker-results.sarif'
+
+      - name: Run Trivy vulnerability scanner for Docker image enforcement
+        if: >-
+          steps.dockerfile-check.outputs.dockerfile-exists == 'true' &&
+          github.event_name == 'pull_request'
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'local-image:latest'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+
+      - name: Generate Docker scan summary
+        if: >-
+          always() &&
+          steps.dockerfile-check.outputs.dockerfile-exists == 'true'
+        run: |
+          echo "## 🐳 Docker Image Security Scan Summary" \
+            >> $GITHUB_STEP_SUMMARY
+          echo "- **Scan Type**: Docker Image" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image**: local-image:latest" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            echo "- **Enforcement**: Enabled (fail on HIGH/CRITICAL)" \
+              >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Enforcement**: Disabled" >> $GITHUB_STEP_SUMMARY
+          fi

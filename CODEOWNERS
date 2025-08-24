@@ -1,0 +1,10 @@
+# Global code ownership
+* @soloman22ue
+
+# Security-related files require additional review
+SECURITY.md @soloman22ue
+.github/workflows/security-scans.yml @soloman22ue
+.github/workflows/codeql.yml @soloman22ue
+.github/workflows/gitleaks.yml @soloman22ue
+.github/dependabot.yml @soloman22ue
+.trivyignore @soloman22ue

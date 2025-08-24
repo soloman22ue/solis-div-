@@ -1,0 +1,36 @@
+# Trivy Ignore File Template
+# 
+# This file allows you to ignore specific vulnerabilities or findings from Trivy scans.
+# Each line represents a single vulnerability ID, file path, or rule to ignore.
+# 
+# Examples of usage:
+#
+# Ignore specific CVE by ID:
+# CVE-2021-12345
+#
+# Ignore vulnerabilities in specific files or directories:
+# path/to/file.js
+# node_modules/
+#
+# Ignore specific secret detection rules:
+# generic-api-key
+# aws-access-key-id
+#
+# Ignore configuration issues:
+# AVD-DS-0002  # Docker specific rule
+# AVD-KSV-0001 # Kubernetes specific rule
+#
+# Use expiration dates for temporary ignores:
+# CVE-2021-12345 # expires:2024-12-31
+#
+# Add comments explaining why vulnerabilities are ignored:
+# CVE-2021-12345 # False positive - not applicable to our use case
+#
+# Guidelines:
+# - Keep this file minimal and well-documented
+# - Regularly review ignored items for relevance
+# - Use expiration dates for temporary ignores
+# - Include justification comments for each ignore
+# - Coordinate with security team before adding ignores
+
+# Add your ignores below this line:
